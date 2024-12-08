@@ -1,0 +1,77 @@
+-- CTE: Creating a table with Facebook Ads data
+with new_table as(
+	select 
+		ad_date,  -- Date of the advertisement
+		url_parameters,  -- URL parameters, possibly UTM tags
+        COALESCE(spend, 0) as spend,  -- Advertising spend (default to 0 if null)
+        COALESCE(impressions, 0) as impressions,  -- Number of impressions (default to 0 if null)
+        COALESCE(reach, 0) as reach,  -- Reach (default to 0 if null)
+        COALESCE(clicks, 0) as clicks,  -- Number of clicks (default to 0 if null)
+        COALESCE(leads, 0) as leads,  -- Number of leads (default to 0 if null)
+        COALESCE(value, 0) as value  -- Value (e.g., revenue, default to 0 if null)
+	from facebook_ads_basic_daily 
+    join facebook_adset on facebook_ads_basic_daily.adset_id = facebook_adset.adset_id  -- Join with the AdSet table
+    join facebook_campaign on facebook_ads_basic_daily.campaign_id = facebook_campaign.campaign_id  -- Join with the Campaign table
+),
+
+-- CTE: Creating a table with Google Ads data
+new_table_2 as(
+	select 
+		ad_date,  -- Date of the advertisement
+		url_parameters,  -- URL parameters, possibly UTM tags
+		COALESCE(spend, 0) as spend,  -- Advertising spend (default to 0 if null)
+        COALESCE(impressions, 0) as impressions,  -- Number of impressions (default to 0 if null)
+        COALESCE(reach, 0) as reach,  -- Reach (default to 0 if null)
+        COALESCE(clicks, 0) as clicks,  -- Number of clicks (default to 0 if null)
+        COALESCE(leads, 0) as leads,  -- Number of leads (default to 0 if null)
+        COALESCE(value, 0) as value  -- Value (e.g., revenue, default to 0 if null)
+	from google_ads_basic_daily 
+),
+
+-- CTE: Combining data from Facebook and Google Ads
+new_table_3 as(
+    select * from new_table
+    union all
+    select * from new_table_2
+)
+
+-- Main query: Aggregating data
+select
+	ad_date,  -- Date of the advertisement
+	lower(
+        case
+            when SUBSTRING(url_parameters, 'utm_campaign=([^&]*)') = 'nan' then null  -- Set to null if UTM campaign is empty
+            else SUBSTRING(url_parameters, 'utm_campaign=([^&]*)')  -- Extract the UTM campaign name
+        end
+    ) as utm_campaign,  -- UTM campaign name converted to lowercase
+    SUM(spend) as total_spend,  -- Total advertising spend
+    SUM(impressions) as total_impressions,  -- Total number of impressions
+    SUM(clicks) as total_clicks,  -- Total number of clicks
+    SUM(value) as total_value,  -- Total value (e.g., revenue)
+    
+    -- Calculate CTR (Click-Through Rate)
+    case
+        when SUM(impressions) = 0 then 0
+        else SUM(clicks) * 1.0 / SUM(impressions) * 100
+    end as CTR,
+    
+    -- Calculate CPC (Cost Per Click)
+    case
+        when SUM(clicks) = 0 then 0
+        else SUM(spend) * 1.0 / SUM(clicks)
+    end as CPC,
+    
+    -- Calculate CPM (Cost Per Mille)
+    case
+        when SUM(impressions) = 0 then 0
+        else SUM(spend) * 1000.0 / SUM(impressions)
+    end as CPM,
+    
+    -- Calculate ROMI (Return on Marketing Investment)
+    case
+        when SUM(spend) = 0 then 0
+        else SUM(value) * 1.0 / SUM(spend)
+    end as ROMI
+
+from new_table_3
+group by ad_date, utm_campaign;  -- Grouping by date and UTM campaign name
